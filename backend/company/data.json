@@ -1,0 +1,5 @@
+{
+  "company_name": "Acme Corp",
+  "employees": ["alice@acme.com", "bob@acme.com"],
+  "public_api_endpoints": ["/api/v1/health", "/api/v1/products"]
+}
