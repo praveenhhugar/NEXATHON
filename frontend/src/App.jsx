@@ -15,55 +15,98 @@ export default function App() {
     setFeed(prev => [...prev, { type, text }]);
   };
 
-  // --- FAKE DEMO ENGINE ---
-  const startDemo = () => {
+  // --- LIVE BACKEND POLLING ---
+  useEffect(() => {
+    fetch('http://127.0.0.1:8000/reset', { method: 'POST' }).catch(() => {});
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/state');
+        const data = await res.json();
+        
+        setRisk(data.risk);
+        setIntent(data.intent);
+        if (data.active_decoy) setActiveDecoy(data.active_decoy);
+        
+        if (data.honeytoken_hit && !honeytokenFired) {
+          setHoneytokenFired(true);
+        }
+      } catch (err) {}
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [honeytokenFired]);
+
+  // --- CINEMATIC DEMO ENGINE ---
+  const startDemo = async () => {
+    // 1. Reset everything
+    try {
+      await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
+    } catch (e) {}
+
     setRisk(0);
     setIntent("normal");
     setActiveDecoy(null);
     setHoneytokenFired(false);
     setFeed([{ type: "system", text: "Attack sequence initiated..." }]);
 
-    // 1. Initial Probe
-    setTimeout(() => {
-      setRisk(25);
-      addFeed("attacker", "GET /");
-      addFeed("attacker", "GET /admin");
-    }, 1000);
+    // Helper function to pause the animation
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // 2. Intent inferred
-    setTimeout(() => {
-      setRisk(74);
-      setIntent("credential_harvesting");
-      addFeed("attacker", "GET /.env");
-      addFeed("observer", "Risk: 74 | Intent: credential_harvesting (Confidence: 80%)");
-    }, 2500);
+    // 2. Cinematic Step-by-Step Sequence
+    await wait(1000); 
+    addFeed("attacker", "GET / (Reconnaissance)");
+    setRisk(10);
 
-    // 3. First Decoy
-    setTimeout(() => {
-      addFeed("planner", "Pick strategy: fake_config_trail (Best hit rate: 80%)");
-      addFeed("validator", "Action deploy_decoy(fake_config_trail) PASSED");
-      setActiveDecoy("fake_config_trail");
-    }, 4000);
+    await wait(1500);
+    addFeed("attacker", "GET /admin (Probing)");
+    
+    await wait(1500);
+    addFeed("attacker", "GET /.env (Credential Hunt)");
 
-    // 4. Adaptation (Ignore & Switch)
-    setTimeout(() => {
-      addFeed("verifier", "No decoy visit after 2 steps -> no engagement");
-      addFeed("planner", "Action: switch_strategy(fake_cloud_page)");
-      addFeed("validator", "Action switch_strategy PASSED");
-      setActiveDecoy("fake_cloud_page");
-    }, 6500);
+    await wait(1500);
+    // Trigger the backend so it processes M1's real logic
+    let backendData = null;
+    try {
+      const response = await fetch('http://127.0.0.1:8000/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: "/env", action: "GET" })
+      });
+      backendData = await response.json();
+    } catch (error) {
+      console.log("Backend error");
+    }
 
-    // 5. Honeytoken Fires
-    setTimeout(() => {
-      addFeed("attacker", "GET /decoy/cloud/keys");
-      addFeed("verifier", "Decoy VISITED");
-      addFeed("attacker", "POST /login key=HT-0043-c71b");
-      addFeed("verifier", "HONEYTOKEN TRIGGERED -> engagement confirmed");
-      setHoneytokenFired(true);
-    }, 9000);
+    // If backend worked, show the Observer results
+    if (backendData) {
+      addFeed("observer", `Risk: ${backendData.assessment.risk} | Intent: ${backendData.assessment.intent}`);
+      setRisk(backendData.assessment.risk);
+      setIntent(backendData.assessment.intent);
+    }
+
+    await wait(1500);
+    addFeed("planner", "Pick strategy: fake_config_trail (Best hit rate)");
+    addFeed("validator", "Action deploy_decoy PASSED");
+    setActiveDecoy("fake_config_trail");
+
+    await wait(1500);
+    addFeed("verifier", "No decoy visit after 2 steps -> no engagement");
+    addFeed("planner", "Switch strategy: fake_cloud_page");
+    setActiveDecoy("fake_cloud_page");
+
+    await wait(1500);
+    addFeed("attacker", "GET /decoy/cloud/keys");
+    addFeed("verifier", "HONEYTOKEN TRIGGERED -> engagement confirmed");
+    
+    // Final climax
+    setHoneytokenFired(true);
   };
 
-  const resetDemo = () => {
+  const resetDemo = async () => {
+    try {
+      await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
+    } catch (e) {}
+    
     setRisk(0);
     setIntent("normal");
     setActiveDecoy(null);
@@ -73,17 +116,15 @@ export default function App() {
 
   // --- ANIMATED SEMI-CIRCLE GAUGE ---
   const Radius = 80;
-  const Circumference = Math.PI * Radius; // Half circle
+  const Circumference = Math.PI * Radius; 
   const StrokeDashoffset = Circumference - (risk / 100) * Circumference;
 
   return (
     <div className="min-h-screen p-8 font-sans bg-[#0B0F19] text-slate-200 overflow-hidden relative selection:bg-purple-500/30">
       
-      {/* Background Gradients */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px] pointer-events-none"></div>
 
-      {/* --- HONEYTOKEN ALERT MODAL --- */}
       {honeytokenFired && (
         <div className="fixed inset-0 bg-[#0B0F19]/90 flex items-center justify-center z-50 backdrop-blur-lg">
           <div className="bg-gradient-to-b from-red-900/40 to-[#0B0F19] border border-red-500/50 p-12 rounded-3xl shadow-[0_0_80px_rgba(239,68,68,0.3)] text-center animate-[pulse_2s_ease-in-out_infinite]">
@@ -98,7 +139,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- HEADER --- */}
       <header className="relative flex justify-between items-center mb-8 z-10">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-white mb-2">
@@ -116,10 +156,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* --- MAIN GRID --- */}
       <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-6 z-10">
         
-        {/* LEFT: TIMELINE FEED (Col span 7) */}
         <div className="lg:col-span-7 bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md h-[75vh] flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-slate-200">Simulation Timeline</h2>
@@ -128,7 +166,6 @@ export default function App() {
           
           <div className="flex-1 overflow-y-auto space-y-4 font-mono text-sm pr-4 custom-scrollbar">
             {feed.map((item, index) => {
-              // Styling based on who is talking
               let textColor = "text-slate-400";
               if (item.type === "attacker") textColor = "text-pink-400";
               if (item.type === "observer") textColor = "text-cyan-400";
@@ -149,20 +186,15 @@ export default function App() {
           </div>
         </div>
 
-        {/* RIGHT SIDE (Col span 5) */}
         <div className="lg:col-span-5 flex flex-col gap-6">
           
-          {/* DEFENDER GAUGE */}
           <div className="bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md flex flex-col items-center justify-center relative overflow-hidden">
              <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500"></div>
              <h2 className="text-sm font-semibold text-slate-400 mb-4 w-full text-left">Defender View</h2>
              
              <div className="relative w-64 h-32 flex justify-center overflow-hidden mt-4">
-                {/* SVG Gauge */}
                 <svg viewBox="0 0 200 100" className="w-full h-full overflow-visible">
-                  {/* Background Arc */}
                   <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e293b" strokeWidth="12" strokeLinecap="round" />
-                  {/* Foreground Arc */}
                   <path 
                     d="M 20 100 A 80 80 0 0 1 180 100" 
                     fill="none" 
@@ -175,14 +207,12 @@ export default function App() {
                     style={{ filter: `drop-shadow(0 0 10px ${risk > 70 ? '#ef4444' : '#10b981'})` }}
                   />
                 </svg>
-                {/* Number inside */}
                 <div className="absolute bottom-0 flex flex-col items-center">
                   <span className="text-5xl font-bold text-white tracking-tighter">{risk}</span>
                   <span className="text-xs text-slate-500 uppercase tracking-widest mt-1">Risk Score</span>
                 </div>
              </div>
 
-             {/* Intent & Decoy Badges */}
              <div className="w-full grid grid-cols-2 gap-4 mt-6">
                 <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Inferred Intent</p>
@@ -195,7 +225,6 @@ export default function App() {
              </div>
           </div>
 
-          {/* STRATEGY & A/B TESTING */}
           <div className="bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md flex-1">
             <h2 className="text-sm font-semibold text-slate-400 mb-4">Strategy Memory & A/B Proof</h2>
             
@@ -204,7 +233,6 @@ export default function App() {
                <div className="text-xs text-emerald-400 font-mono">+300% Success</div>
             </div>
 
-            {/* Animated Bars */}
             <div className="flex items-end justify-between h-24 gap-4">
                 <div className="flex flex-col items-center flex-1 h-full justify-end group">
                   <div className="w-full bg-slate-700/50 rounded-t-lg transition-all duration-1000 h-[25%] group-hover:bg-slate-600"></div>
@@ -220,7 +248,6 @@ export default function App() {
         </div>
       </div>
       
-      {/* Custom Keyframes for standard Tailwind */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(5px); }
