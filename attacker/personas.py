@@ -1,8 +1,5 @@
 PERSONAS = {
-    "Script Kiddie": {"paths": ["/admin", "/login"], "delay": 1},
-    "Stealthy": {"paths": ["/robots.txt", "/env"], "delay": 5},
-    "APTx": {"paths": ["/config"], "delay": 3},
+    "Script Kiddie": {"paths": ["/company/admin", "/company/admin"], "delay": 1},
+    "Stealthy": {"paths": ["/company/", "/company/aws", "/company/admin"], "delay": 3},
+    "APTx": {"paths": ["/company/aws"], "delay": 2},
 }
-if __name__ == "__main__":
-    for name, data in PERSONAS.items():
-        print(f"{name} attacks {data['paths']} with {data['delay']}s delay")

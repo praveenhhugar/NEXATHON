@@ -5,6 +5,8 @@ export default function App() {
   const [intent, setIntent] = useState("normal");
   const [activeDecoy, setActiveDecoy] = useState(null);
   const [honeytokenFired, setHoneytokenFired] = useState(false);
+  // Add this new state at the top of your App component
+  const [isDemoRunning, setIsDemoRunning] = useState(false);
   
   // The timeline feed
   const [feed, setFeed] = useState([
@@ -15,10 +17,10 @@ export default function App() {
     setFeed(prev => [...prev, { type, text }]);
   };
 
+   
+
   // --- LIVE BACKEND POLLING ---
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/reset', { method: 'POST' }).catch(() => {});
-
     const interval = setInterval(async () => {
       try {
         const res = await fetch('http://127.0.0.1:8000/state');
@@ -28,17 +30,19 @@ export default function App() {
         setIntent(data.intent);
         if (data.active_decoy) setActiveDecoy(data.active_decoy);
         
-        if (data.honeytoken_hit && !honeytokenFired) {
+        // ONLY trigger the red screen if the cinematic demo is NOT running
+        if (data.honeytoken_hit && !honeytokenFired && !isDemoRunning) {
           setHoneytokenFired(true);
         }
       } catch (err) {}
     }, 1000);
     return () => clearInterval(interval);
-  }, [honeytokenFired]);
+  }, [honeytokenFired, isDemoRunning]);
 
   // --- CINEMATIC DEMO ENGINE ---
   const startDemo = async () => {
-    // 1. Reset everything
+    setIsDemoRunning(true); // Lock the poller
+    
     try {
       await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
     } catch (e) {}
@@ -49,39 +53,33 @@ export default function App() {
     setHoneytokenFired(false);
     setFeed([{ type: "system", text: "Attack sequence initiated..." }]);
 
-    // Helper function to pause the animation
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // 2. Cinematic Step-by-Step Sequence
     await wait(1000); 
-    addFeed("attacker", "GET / (Reconnaissance)");
-    setRisk(10);
+    addFeed("attacker", "GET /company/ (Reconnaissance)");
+    setRisk(15);
 
     await wait(1500);
-    addFeed("attacker", "GET /admin (Probing)");
+    addFeed("attacker", "GET /company/aws (Probing)");
     
     await wait(1500);
-    addFeed("attacker", "GET /.env (Credential Hunt)");
+    addFeed("attacker", "GET /company/admin (Credential Hunt)");
 
     await wait(1500);
-    // Trigger the backend so it processes M1's real logic
-    let backendData = null;
+    // Trigger the backend
     try {
       const response = await fetch('http://127.0.0.1:8000/event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: "/env", action: "GET" })
+        body: JSON.stringify({ path: "/company/admin", method: "GET", attempts: 3 })
       });
-      backendData = await response.json();
-    } catch (error) {
-      console.log("Backend error");
-    }
-
-    // If backend worked, show the Observer results
-    if (backendData) {
+      const backendData = await response.json();
+      
       addFeed("observer", `Risk: ${backendData.assessment.risk} | Intent: ${backendData.assessment.intent}`);
       setRisk(backendData.assessment.risk);
       setIntent(backendData.assessment.intent);
+    } catch (error) {
+      console.log("Backend error");
     }
 
     await wait(1500);
@@ -100,6 +98,7 @@ export default function App() {
     
     // Final climax
     setHoneytokenFired(true);
+    setIsDemoRunning(false); // Unlock the poller
   };
 
   const resetDemo = async () => {
@@ -230,17 +229,17 @@ export default function App() {
             
             <div className="flex justify-between items-end mb-6">
                <div className="text-xs text-slate-500">Adaptive vs Fixed Comparison</div>
-               <div className="text-xs text-emerald-400 font-mono">+300% Success</div>
+               <div className="text-xs text-emerald-400 font-mono">+1000% Success</div>
             </div>
 
             <div className="flex items-end justify-between h-24 gap-4">
                 <div className="flex flex-col items-center flex-1 h-full justify-end group">
-                  <div className="w-full bg-slate-700/50 rounded-t-lg transition-all duration-1000 h-[25%] group-hover:bg-slate-600"></div>
-                  <span className="text-[10px] text-slate-500 mt-2 uppercase tracking-wider">Fixed</span>
+                  <div className="w-full bg-slate-700/50 rounded-t-lg transition-all duration-1000 h-[5%] group-hover:bg-slate-600"></div>
+                  <span className="text-[10px] text-slate-500 mt-2 uppercase tracking-wider">Fixed (0/10)</span>
                 </div>
                 <div className="flex flex-col items-center flex-1 h-full justify-end group">
-                  <div className="w-full bg-gradient-to-t from-purple-600 to-cyan-400 rounded-t-lg shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-1000 h-[85%] group-hover:shadow-[0_0_30px_rgba(34,211,238,0.7)]"></div>
-                  <span className="text-[10px] text-cyan-400 mt-2 uppercase tracking-wider font-bold">Adaptive</span>
+                  <div className="w-full bg-gradient-to-t from-purple-600 to-cyan-400 rounded-t-lg shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-1000 h-[100%] group-hover:shadow-[0_0_30px_rgba(34,211,238,0.7)]"></div>
+                  <span className="text-[10px] text-cyan-400 mt-2 uppercase tracking-wider font-bold">Adaptive (10/10)</span>
                 </div>
             </div>
           </div>

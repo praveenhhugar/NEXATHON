@@ -1,5 +1,13 @@
 {
-  "company_name": "Acme Corp",
-  "employees": ["alice@acme.com", "bob@acme.com"],
-  "public_api_endpoints": ["/api/v1/health", "/api/v1/products"]
+  "company_name": "Acme Corp Internal Portal",
+  "employees": [
+    {"id": 1, "name": "Alice Smith", "role": "Admin", "email": "alice@acme.local"},
+    {"id": 2, "name": "Bob Jones", "role": "Developer", "email": "bob@acme.local"}
+  ],
+  "internal_configs": {
+    "database_url": "postgres://admin:secretpassword@acme-db.internal:5432/main",
+    "aws_access_key": "AKIA-FAKE-12345",
+    "aws_secret_key": "HT-0042-a9f3" 
+  },
+  "notes": "Do not share the AWS secret key with anyone outside the company."
 }
