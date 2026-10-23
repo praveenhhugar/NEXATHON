@@ -5,111 +5,50 @@ export default function App() {
   const [intent, setIntent] = useState("normal");
   const [activeDecoy, setActiveDecoy] = useState(null);
   const [honeytokenFired, setHoneytokenFired] = useState(false);
-  // Add this new state at the top of your App component
-  const [isDemoRunning, setIsDemoRunning] = useState(false);
+  
+  // New Firewall States
+  const [firewallStatus, setFirewallStatus] = useState("MONITORING");
+  const [blockedIps, setBlockedIps] = useState([]);
   
   // The timeline feed
   const [feed, setFeed] = useState([
     { type: "system", text: "System initialized. Sandbox environment ready." }
   ]);
 
-  const addFeed = (type, text) => {
-    setFeed(prev => [...prev, { type, text }]);
-  };
-
-   
-
   // --- LIVE BACKEND POLLING ---
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/state');
+        // Make sure we are fetching from /api/state
+        const res = await fetch('http://127.0.0.1:8000/api/state');
         const data = await res.json();
         
         setRisk(data.risk);
         setIntent(data.intent);
         if (data.active_decoy) setActiveDecoy(data.active_decoy);
+        if (data.honeytoken_hit && !honeytokenFired) setHoneytokenFired(true);
+
+        // Update Firewall Data
+        if (data.firewall_status) setFirewallStatus(data.firewall_status);
+        if (data.blocked_ips) setBlockedIps(data.blocked_ips);
         
-        // ONLY trigger the red screen if the cinematic demo is NOT running
-        if (data.honeytoken_hit && !honeytokenFired && !isDemoRunning) {
-          setHoneytokenFired(true);
-        }
-      } catch (err) {}
+      } catch (err) {
+        // Ignore errors if backend is restarting
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [honeytokenFired, isDemoRunning]);
-
-  // --- CINEMATIC DEMO ENGINE ---
-  const startDemo = async () => {
-    setIsDemoRunning(true); // Lock the poller
-    
-    try {
-      await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
-    } catch (e) {}
-
-    setRisk(0);
-    setIntent("normal");
-    setActiveDecoy(null);
-    setHoneytokenFired(false);
-    setFeed([{ type: "system", text: "Attack sequence initiated..." }]);
-
-    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-    await wait(1000); 
-    addFeed("attacker", "GET /company/ (Reconnaissance)");
-    setRisk(15);
-
-    await wait(1500);
-    addFeed("attacker", "GET /company/aws (Probing)");
-    
-    await wait(1500);
-    addFeed("attacker", "GET /company/admin (Credential Hunt)");
-
-    await wait(1500);
-    // Trigger the backend
-    try {
-      const response = await fetch('http://127.0.0.1:8000/event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: "/company/admin", method: "GET", attempts: 3 })
-      });
-      const backendData = await response.json();
-      
-      addFeed("observer", `Risk: ${backendData.assessment.risk} | Intent: ${backendData.assessment.intent}`);
-      setRisk(backendData.assessment.risk);
-      setIntent(backendData.assessment.intent);
-    } catch (error) {
-      console.log("Backend error");
-    }
-
-    await wait(1500);
-    addFeed("planner", "Pick strategy: fake_config_trail (Best hit rate)");
-    addFeed("validator", "Action deploy_decoy PASSED");
-    setActiveDecoy("fake_config_trail");
-
-    await wait(1500);
-    addFeed("verifier", "No decoy visit after 2 steps -> no engagement");
-    addFeed("planner", "Switch strategy: fake_cloud_page");
-    setActiveDecoy("fake_cloud_page");
-
-    await wait(1500);
-    addFeed("attacker", "GET /decoy/cloud/keys");
-    addFeed("verifier", "HONEYTOKEN TRIGGERED -> engagement confirmed");
-    
-    // Final climax
-    setHoneytokenFired(true);
-    setIsDemoRunning(false); // Unlock the poller
-  };
+  }, [honeytokenFired]);
 
   const resetDemo = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
+      await fetch('http://127.0.0.1:8000/api/reset', { method: 'POST' });
     } catch (e) {}
     
     setRisk(0);
     setIntent("normal");
     setActiveDecoy(null);
     setHoneytokenFired(false);
+    setFirewallStatus("MONITORING");
     setFeed([{ type: "system", text: "System reset. Ready." }]);
   };
 
@@ -124,6 +63,7 @@ export default function App() {
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px] pointer-events-none"></div>
 
+      {/* HONEYTOKEN ALERT MODAL */}
       {honeytokenFired && (
         <div className="fixed inset-0 bg-[#0B0F19]/90 flex items-center justify-center z-50 backdrop-blur-lg">
           <div className="bg-gradient-to-b from-red-900/40 to-[#0B0F19] border border-red-500/50 p-12 rounded-3xl shadow-[0_0_80px_rgba(239,68,68,0.3)] text-center animate-[pulse_2s_ease-in-out_infinite]">
@@ -138,6 +78,7 @@ export default function App() {
         </div>
       )}
 
+      {/* HEADER */}
       <header className="relative flex justify-between items-center mb-8 z-10">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-white mb-2">
@@ -146,17 +87,16 @@ export default function App() {
           <p className="text-slate-400 text-sm">Every attack teaches the defense how to deceive better.</p>
         </div>
         <div className="flex gap-4">
-          <button onClick={startDemo} className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-black font-bold py-3 px-8 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.3)] transition-all transform hover:scale-105">
-            Run Sequence
-          </button>
           <button onClick={resetDemo} className="border border-slate-700 hover:bg-slate-800 text-slate-300 font-bold py-3 px-8 rounded-full transition-all">
             Reset
           </button>
         </div>
       </header>
 
+      {/* MAIN GRID */}
       <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-6 z-10">
         
+        {/* LEFT: TIMELINE FEED */}
         <div className="lg:col-span-7 bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md h-[75vh] flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-slate-200">Simulation Timeline</h2>
@@ -168,12 +108,9 @@ export default function App() {
               let textColor = "text-slate-400";
               if (item.type === "attacker") textColor = "text-pink-400";
               if (item.type === "observer") textColor = "text-cyan-400";
-              if (item.type === "planner") textColor = "text-blue-400";
-              if (item.type === "validator") textColor = "text-emerald-400";
-              if (item.type === "verifier") textColor = "text-amber-400";
               
               return (
-                <div key={index} className="flex gap-4 animate-[fadeIn_0.3s_ease-out]">
+                <div key={index} className="flex gap-4">
                   <span className="text-slate-600 text-xs w-12 pt-1">14:0{index}</span>
                   <div className={`${textColor} flex-1 border-b border-slate-800/50 pb-2`}>
                     {item.type !== 'system' && <span className="opacity-50 mr-2">[{item.type.toUpperCase()}]</span>}
@@ -185,8 +122,10 @@ export default function App() {
           </div>
         </div>
 
+        {/* RIGHT SIDE */}
         <div className="lg:col-span-5 flex flex-col gap-6">
           
+          {/* DEFENDER GAUGE */}
           <div className="bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md flex flex-col items-center justify-center relative overflow-hidden">
              <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500"></div>
              <h2 className="text-sm font-semibold text-slate-400 mb-4 w-full text-left">Defender View</h2>
@@ -203,7 +142,6 @@ export default function App() {
                     strokeDasharray={Circumference}
                     strokeDashoffset={StrokeDashoffset}
                     className="transition-all duration-1000 ease-out"
-                    style={{ filter: `drop-shadow(0 0 10px ${risk > 70 ? '#ef4444' : '#10b981'})` }}
                   />
                 </svg>
                 <div className="absolute bottom-0 flex flex-col items-center">
@@ -224,38 +162,29 @@ export default function App() {
              </div>
           </div>
 
-          <div className="bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md flex-1">
-            <h2 className="text-sm font-semibold text-slate-400 mb-4">Strategy Memory & A/B Proof</h2>
-            
-            <div className="flex justify-between items-end mb-6">
-               <div className="text-xs text-slate-500">Adaptive vs Fixed Comparison</div>
-               <div className="text-xs text-emerald-400 font-mono">+1000% Success</div>
+          {/* FIREWALL MONITOR */}
+          <div className="bg-[#111827]/80 border border-slate-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md">
+            <h2 className="text-sm font-semibold text-slate-400 mb-4">Firewall Monitor</h2>
+            <div className="mb-4">
+              <p className="text-xs text-slate-500 mb-2">Current Status:</p>
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                firewallStatus.includes("BLOCKED") ? "bg-red-500/20 text-red-400" : 
+                firewallStatus.includes("DECEIVED") ? "bg-purple-500/20 text-purple-400" : 
+                "bg-emerald-500/20 text-emerald-400"
+              }`}>
+                {firewallStatus}
+              </span>
             </div>
-
-            <div className="flex items-end justify-between h-24 gap-4">
-                <div className="flex flex-col items-center flex-1 h-full justify-end group">
-                  <div className="w-full bg-slate-700/50 rounded-t-lg transition-all duration-1000 h-[5%] group-hover:bg-slate-600"></div>
-                  <span className="text-[10px] text-slate-500 mt-2 uppercase tracking-wider">Fixed (0/10)</span>
-                </div>
-                <div className="flex flex-col items-center flex-1 h-full justify-end group">
-                  <div className="w-full bg-gradient-to-t from-purple-600 to-cyan-400 rounded-t-lg shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all duration-1000 h-[100%] group-hover:shadow-[0_0_30px_rgba(34,211,238,0.7)]"></div>
-                  <span className="text-[10px] text-cyan-400 mt-2 uppercase tracking-wider font-bold">Adaptive (10/10)</span>
-                </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-2">Blocked IPs:</p>
+              <ul className="text-sm font-mono text-red-400">
+                {blockedIps?.map((ip, i) => <li key={i}>⛔ {ip}</li>)}
+              </ul>
             </div>
           </div>
 
         </div>
       </div>
-      
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(5px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-      `}} />
     </div>
   );
 }
