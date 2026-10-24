@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DECEPTOR AI - Command Center</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #030712; /* Ultra dark */
+            --panel-bg: rgba(15, 23, 42, 0.65); 
+            --text-main: #f1f5f9;
+            --accent: #00f3ff; /* Neon Cyan */
+            --trusted: #00ff88; 
+            --flagged: #ffcc00;
+            --blocked: #ff003c;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        /* PARTICLE CANVAS BACKGROUND */
+        #particle-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+        }
+
+        /* RED ALERT FLASH */
+        @keyframes redAlert {
+            0% { box-shadow: inset 0 0 0px rgba(255, 0, 60, 0); }
+            50% { box-shadow: inset 0 0 200px rgba(255, 0, 60, 0.6); }
+            100% { box-shadow: inset 0 0 0px rgba(255, 0, 60, 0); }
+        }
+        .alert-active { animation: redAlert 1.5s infinite; }
+
+        /* HEADER & LOGO */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .logo-svg {
+            filter: drop-shadow(0 0 10px var(--accent));
+            margin-bottom: 5px;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0px); }
+        }
+
+        @keyframes pulseEye {
+            0% { stroke-width: 3; opacity: 1; }
+            50% { stroke-width: 5; opacity: 0.5; stroke: #fff; }
+            100% { stroke-width: 3; opacity: 1; }
+        }
+        .pulse-eye { animation: pulseEye 2s infinite; }
+
+        @keyframes pulsePupil {
+            0% { r: 5; fill: var(--blocked); }
+            50% { r: 8; fill: var(--accent); filter: drop-shadow(0 0 15px var(--accent)); }
+            100% { r: 5; fill: var(--blocked); }
+        }
+        .pulse-pupil { animation: pulsePupil 2s infinite; }
+
+        .blink-text {
+            animation: blink 3s linear infinite;
+            color: var(--accent);
+            text-shadow: 0 0 15px rgba(0, 243, 255, 0.8), 0 0 30px rgba(0, 243, 255, 0.4);
+            font-size: 3.5rem;
+            letter-spacing: 8px;
+            margin: 10px 0;
+            font-family: 'Times New Roman', Times, serif;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; text-shadow: 0 0 20px rgba(0, 243, 255, 1); }
+            50% { opacity: 0.7; text-shadow: 0 0 5px rgba(0, 243, 255, 0.3); }
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            color: #94a3b8;
+            font-size: 1.4rem;
+            letter-spacing: 3px;
+        }
+
+        /* RESET BUTTON */
+        .reset-btn {
+            position: absolute;
+            top: 30px;
+            right: 40px;
+            background: rgba(255, 0, 60, 0.05);
+            color: var(--blocked);
+            border: 2px solid var(--blocked);
+            padding: 12px 24px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            z-index: 10;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: 0 0 10px rgba(255, 0, 60, 0.2);
+        }
+
+        .reset-btn:hover {
+            background: var(--blocked);
+            color: #ffffff;
+            box-shadow: 0 0 25px var(--blocked), inset 0 0 10px rgba(255, 255, 255, 0.4);
+            transform: translateY(-3px) scale(1.05);
+            text-shadow: 0 0 5px #fff;
+        }
+
+        .reset-btn:active {
+            transform: translateY(1px) scale(0.98);
+            box-shadow: 0 0 10px var(--blocked);
+        }
+
+        /* GRID LAYOUT */
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 30px;
+            max-width: 1500px;
+            margin: 0 auto;
+            z-index: 10;
+            position: relative;
+        }
+
+        /* 3D GLASSMORPHISM PANELS */
+        .panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s;
+        }
+        .panel:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 243, 255, 0.2);
+            border-color: rgba(0, 243, 255, 0.3);
+        }
+        
+        .panel h2 {
+            margin-top: 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+            color: #fff;
+            letter-spacing: 2px;
+            font-size: 1.8rem;
+            font-family: 'Times New Roman', Times, serif;
+        }
+
+        /* NETWORK LISTS */
+        .list-box {
+            margin-bottom: 25px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+        }
+        .list-box:hover { transform: scale(1.02); }
+        .list-box h3 { margin: 0 0 15px 0; font-size: 1.2rem; letter-spacing: 1px; }
+        .list-box ul { list-style: none; padding: 0; margin: 0; font-size: 1.4rem; }
+        .list-box li { 
+            padding: 10px 0; 
+            border-bottom: 1px solid rgba(255,255,255,0.05); 
+            display: flex;
+            align-items: center;
+        }
+        
+        /* Animated Status Dots */
+        .dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 15px; }
+        .dot-trusted { background-color: var(--trusted); box-shadow: 0 0 12px var(--trusted); }
+        .dot-flagged { background-color: var(--flagged); box-shadow: 0 0 12px var(--flagged); animation: pulse-yellow 1s infinite; }
+        .dot-blocked { background-color: var(--blocked); box-shadow: 0 0 12px var(--blocked); animation: pulse-red 0.5s infinite; }
+
+        @keyframes pulse-yellow { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        @keyframes pulse-red { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
+
+        .box-trusted { border-left-color: var(--trusted); }
+        .box-flagged { border-left-color: var(--flagged); }
+        .box-blocked { border-left-color: var(--blocked); }
+
+        /* LIVE TERMINAL LOGS */
+        .log-feed {
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            padding: 20px;
+            height: 350px; /* Adjusted to fit nicely under the firewall tester */
+            overflow-y: auto;
+            border: 1px solid rgba(0, 243, 255, 0.15);
+            box-shadow: inset 0 0 30px rgba(0,0,0,1);
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .log-entry { 
+            padding: 15px 10px; 
+            border-bottom: 1px solid #1e293b; 
+            animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            font-size: 1.3rem;
+        }
+        .log-time { color: #64748b; margin-right: 15px; }
+        
+        .log-msg-yellow { color: var(--flagged); text-shadow: 0 0 8px rgba(255, 204, 0, 0.6); }
+        .log-msg-red { 
+            color: var(--blocked); 
+            font-weight: bold; 
+            text-shadow: 0 0 12px rgba(255, 0, 60, 0.8); 
+            background: rgba(255, 0, 60, 0.15);
+            border-radius: 4px;
+            padding: 8px;
+            border-left: 4px solid var(--blocked);
+        }
+        
+        .empty-log { color: #475569; text-align: center; margin-top: 120px; font-size: 1.5rem; animation: pulse-yellow 2s infinite; }
+    </style>
+</head>
+<body>
+
+    <!-- The Moving Particles Background -->
+    <canvas id="particle-canvas"></canvas>
+
+    <div class="header">
+        <!-- The DECEPTOR AI Logo -->
+        <svg width="80" height="80" viewBox="0 0 100 100" class="logo-svg">
+            <path d="M50 5 L90 20 L90 50 C90 75 50 95 50 95 C50 95 10 75 10 50 L10 20 Z" 
+                  fill="none" stroke="var(--accent)" stroke-width="4" stroke-linejoin="round"/>
+            <circle cx="50" cy="50" r="15" fill="none" stroke="var(--accent)" stroke-width="3" class="pulse-eye"/>
+            <circle cx="50" cy="50" r="5" fill="var(--blocked)" class="pulse-pupil"/>
+            <line x1="50" y1="20" x2="50" y2="35" stroke="var(--accent)" stroke-width="2"/>
+            <line x1="50" y1="65" x2="50" y2="80" stroke="var(--accent)" stroke-width="2"/>
+        </svg>
+
+        <h1 class="blink-text">DECEPTOR AI</h1>
+        <p>ACTIVE DEFENSE GATEWAY</p>
+        <button class="reset-btn" onclick="resetSystem()">Reset System</button>
+    </div>
+
+    <div class="grid-container">
+        
+        <!-- LEFT COLUMN: Network Status -->
+        <div class="panel">
+            <h2>Network Status</h2>
+            
+            <div class="list-box box-trusted">
+                <h3>🟢 TRUSTED IPS (Firewall Passed)</h3>
+                <ul id="trusted-list"></ul>
+            </div>
+            
+            <div class="list-box box-flagged">
+                <h3>🟡 FLAGGED IPS (Trapped in Decoy)</h3>
+                <ul id="flagged-list"></ul>
+            </div>
+            
+            <div class="list-box box-blocked">
+                <h3>🔴 BLOCKED IPS (Firewall Active)</h3>
+                <ul id="blocked-list"></ul>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Firewall Tester & Timeline -->
+        <div style="display: flex; flex-direction: column; gap: 30px;">
+            
+            <!-- Firewall Tester -->
+            <div class="panel" style="padding: 25px 30px;">
+                <h2>Firewall Verification</h2>
+                <div style="display: flex; align-items: center; gap: 15px; margin-top: 15px;">
+                    <input type="text" id="test-ip-input" placeholder="Enter IP (e.g., 10.0.0.99)" 
+                           style="flex: 1; padding: 12px; font-size: 1.2rem; border-radius: 5px; border: 1px solid var(--accent); background: rgba(0,0,0,0.5); color: white; font-family: monospace;">
+                    <button onclick="testFirewall()" 
+                            style="padding: 12px 25px; font-size: 1.2rem; font-weight: bold; cursor: pointer; border-radius: 5px; border: none; background: var(--accent); color: #000; transition: 0.3s;"
+                            onmouseover="this.style.boxShadow='0 0 15px var(--accent)'" 
+                            onmouseout="this.style.boxShadow='none'">
+                        Test IP
+                    </button>
+                </div>
+                <div id="firewall-result" style="margin-top: 15px; font-size: 1.3rem; font-weight: bold; font-family: monospace; min-height: 25px;">
+                    <!-- Result will appear here -->
+                </div>
+            </div>
+
+            <!-- Live Timeline -->
+            <div class="panel" style="flex-grow: 1;">
+                <h2>Live Threat Timeline</h2>
+                <div class="log-feed" id="log-feed">
+                    <div class="empty-log">[ AWAITING TRAFFIC ]</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. PARTICLE NETWORK ANIMATION SCRIPT
+        // ==========================================
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 0.8;
+                this.vy = (Math.random() - 0.5) * 0.8;
+                this.radius = Math.random() * 2 + 1;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0, 243, 255, 0.6)';
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 70; i++) particles.push(new Particle());
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < 120) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `rgba(0, 243, 255, ${0.15 - distance/800})`;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles();
+
+        // ==========================================
+        // 2. DASHBOARD DATA POLLING
+        // ==========================================
+        setInterval(async () => {
+            try {
+                const response = await axios.get('http://127.0.0.1:8000/api/state');
+                const data = response.data;
+
+                renderList('trusted-list', data.trusted, 'dot-trusted');
+                renderList('flagged-list', data.flagged, 'dot-flagged');
+                renderList('blocked-list', data.blocked, 'dot-blocked');
+
+                if (data.honeytokens && data.honeytokens.length > 0) {
+                    const latestHit = data.honeytokens[data.honeytokens.length - 1];
+                    const logId = `hit-${latestHit.ip}-${latestHit.token}`;
+                    if (!document.getElementById(logId)) {
+                        addLog(`🚨 Honeytoken Triggered! Firewall updated. IP ${latestHit.ip} Blocked.`, "red", logId);
+                        triggerScreenFlash();
+                    }
+                } 
+                
+                if (data.flagged && data.flagged.length > 0) {
+                    const latestFlag = data.flagged[data.flagged.length - 1];
+                    const logId = `flag-${latestFlag}`;
+                    if (!document.getElementById(logId)) {
+                        addLog(`⚠️ Suspicious probing from ${latestFlag}. Routed to Decoy.`, "yellow", logId);
+                    }
+                }
+            } catch (error) { console.error("Backend offline"); }
+        }, 1000);
+
+        function renderList(id, items, dotClass) {
+            const el = document.getElementById(id);
+            if (items.length === 0) {
+                el.innerHTML = '<li style="opacity:0.3; font-style:italic;">None</li>';
+            } else {
+                el.innerHTML = items.map(ip => `<li><span class="dot ${dotClass}"></span> ${ip}</li>`).join('');
+            }
+        }
+
+        function addLog(message, colorClass, id) {
+            const time = new Date().toLocaleTimeString();
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log-entry';
+            logDiv.id = id; 
+            logDiv.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-msg-${colorClass}">${message}</span>`;
+            
+            const feed = document.getElementById('log-feed');
+            if (feed.innerHTML.includes("[ AWAITING TRAFFIC ]")) feed.innerHTML = '';
+            feed.prepend(logDiv);
+        }
+
+        function triggerScreenFlash() {
+            document.body.classList.add('alert-active');
+            setTimeout(() => { document.body.classList.remove('alert-active'); }, 3000); 
+        }
+
+        // ==========================================
+        // 3. RESET BUTTON FUNCTION
+        // ==========================================
+        async function resetSystem() {
+            try {
+                await axios.post('http://127.0.0.1:8000/api/reset');
+                document.getElementById('log-feed').innerHTML = '<div class="empty-log">[ AWAITING TRAFFIC ]</div>';
+                alert("System Reset! Data cleared. Ready for demo.");
+            } catch (e) { alert("Reset failed. Is backend running?"); }
+        }
+
+        // ==========================================
+        // 4. FIREWALL TESTER FUNCTION
+        // ==========================================
+        async function testFirewall() {
+            const ip = document.getElementById('test-ip-input').value;
+            const resultDiv = document.getElementById('firewall-result');
+            
+            if (!ip) {
+                resultDiv.innerHTML = "<span style='color: var(--flagged);'>Please enter an IP address.</span>";
+                return;
+            }
+
+            try {
+                const response = await axios.get(`http://127.0.0.1:8000/api/test-firewall/${ip}`);
+                const data = response.data;
+
+                if (data.status.includes("BLOCKED") || data.status.includes("REFUSED")) {
+                    resultDiv.innerHTML = `<span style="color: var(--blocked); text-shadow: 0 0 10px var(--blocked);">⛔ ${data.message}</span>`;
+                } else {
+                    resultDiv.innerHTML = `<span style="color: var(--trusted); text-shadow: 0 0 10px var(--trusted);">✅ ${data.message}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = "<span style='color: var(--flagged);'>Error contacting backend.</span>";
+            }
+        }
+    </script>
+</body>
+</html>

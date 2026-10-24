@@ -1,101 +1,98 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import observer
-import planner
+from fastapi.responses import HTMLResponse
+from notifier import send_alert
+import db_real
 
 app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ==========================================
+# FIREWALL & DECEPTOR STATE
+# ==========================================
+ALLOWED_IPS = ["127.0.0.1", "192.168.1.50", "192.168.1.99"]
+BLOCKED_IPS = []
+FLAGGED_IPS = set() 
+HONEYTOKEN_HITS = []
 
-# --- SIMULATED FIREWALL & STATE ---
-BLOCKED_IPS = {"192.168.1.100"} # Pre-blocked known attacker
-FLAGGED_IPS = set()             # IPs that bypassed firewall but got caught by AI
-IP_ATTEMPTS = {}                # Tracks how many times an IP hit us
-EVENT_LOG = []                  # Stores the live timeline
+@app.api_route("/gateway/{path:path}", methods=["GET", "POST"])
+async def gateway(path: str, request: Request):
+    # THE MAGIC: Check if the user is simulating an IP via headers
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+    
+    # 1. FIREWALL CHECK
+    if client_ip not in ALLOWED_IPS or client_ip in BLOCKED_IPS:
+        return {"error": f"⛔ BLOCKED BY FIREWALL: IP {client_ip} is not on the allowlist."}
+        
+    # 2. STICKY SESSION
+    if client_ip in FLAGGED_IPS:
+        try:
+            with open("decoy_page.html", "r") as file:
+                return HTMLResponse(content=file.read(), status_code=200)
+        except FileNotFoundError:
+            return {"status": "200 OK", "data": "Decoy Data"}
+        
+    # 3. RISK ASSESSMENT
+    hacker_paths = [".env", "admin", "config", "aws", "passwords"]
+    risk = 90 if path in hacker_paths else 5
+    
+    # 4. ROUTING DECISION
+    if risk >= 50:
+        FLAGGED_IPS.add(client_ip)
+        print(f"\n🚨 ATTACK DETECTED from {client_ip} on /{path}")
+        try:
+            with open("decoy_page.html", "r") as file:
+                return HTMLResponse(content=file.read(), status_code=200)
+        except FileNotFoundError:
+            return {"status": "200 OK", "data": "Decoy Data"}
+    else:
+        return db_real.get_real_data(path)
 
-STATE = {
-    "risk": 0, 
-    "intent": "normal", 
-    "active_decoy": None, 
-    "honeytoken_hit": False,
-    "firewall_status": "MONITORING",
-    "blocked_ips": list(BLOCKED_IPS)
-}
-
+# ==========================================
+# APIS FOR THE DASHBOARD
+# ==========================================
 @app.get("/api/state")
 def get_state():
-    STATE["blocked_ips"] = list(BLOCKED_IPS) # Keep frontend updated
-    return STATE
+    return {
+        "trusted": ALLOWED_IPS,
+        "blocked": BLOCKED_IPS,
+        "flagged": list(FLAGGED_IPS),
+        "honeytokens": HONEYTOKEN_HITS
+    }
 
-@app.get("/api/logs")
-def get_logs():
-    return {"logs": EVENT_LOG}
+@app.post("/api/token/verify")
+def verify_token(request: Request, data: dict):
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+    token = data.get("token")
+    
+    if token == "HT-0042-a9f3" or token == "admin123":
+        HONEYTOKEN_HITS.append({"ip": client_ip, "token": token})
+        
+        if client_ip in ALLOWED_IPS: 
+            ALLOWED_IPS.remove(client_ip)
+        if client_ip not in BLOCKED_IPS: 
+            BLOCKED_IPS.append(client_ip)
+            
+        print(f"\n🔥 HONEYTOKEN TRIGGERED by {client_ip}.")
+        print(f"[*] FIREWALL UPDATED: {client_ip} removed from Allowlist and BLOCKED.")
+        
+        send_alert(client_ip)
+        return {"status": "ENGAGEMENT CONFIRMED", "action": "FIREWALL RULE ADDED"}
+    return {"status": "invalid token"}
 
 @app.post("/api/reset")
-def reset_state():
-    global STATE, FLAGGED_IPS, IP_ATTEMPTS, EVENT_LOG
-    STATE = {"risk": 0, "intent": "normal", "active_decoy": None, "honeytoken_hit": False, "firewall_status": "MONITORING", "blocked_ips": list(BLOCKED_IPS)}
-    FLAGGED_IPS.clear()
-    IP_ATTEMPTS.clear()
-    EVENT_LOG.clear() # Clear the timeline
-    return {"status": "reset"}
+def reset_system():
+    global ALLOWED_IPS, BLOCKED_IPS, FLAGGED_IPS, HONEYTOKEN_HITS
+    ALLOWED_IPS = ["127.0.0.1", "192.168.1.50", "192.168.1.99"]
+    BLOCKED_IPS = []
+    FLAGGED_IPS = set() 
+    HONEYTOKEN_HITS = []
+    print("\n🔄 SYSTEM RESET")
+    return {"status": "System Reset Successful"}
 
-# --- THE GATEWAY (Intercepts all company traffic) ---
-@app.api_route("/company/{path:path}", methods=["GET", "POST"])
-async def gateway(request: Request, path: str):
-    global STATE, EVENT_LOG
-    ip = request.client.host if request.client.host != "127.0.0.1" else request.headers.get("X-Forwarded-For", "10.0.0.45") 
-
-    # 1. CHECK FIREWALL (Case 1)
-    if ip in BLOCKED_IPS:
-        STATE["firewall_status"] = f"BLOCKED ({ip})"
-        EVENT_LOG.append({"type": "attacker", "text": f"⛔ Firewall Dropped Request from {ip}"})
-        return {"error": "403 Forbidden - Dropped by Firewall"}
-
-    # 2. CHECK IF ALREADY FLAGGED (Case 2 - Once flagged, always flagged)
-    if ip in FLAGGED_IPS:
-        STATE["firewall_status"] = f"DECEIVED ({ip})"
-        return get_decoy_response(path)
-
-    # 3. OBSERVE & PLAN
-    IP_ATTEMPTS[ip] = IP_ATTEMPTS.get(ip, 0) + 1
-    assessment = observer.calculate_risk(path, "GET", IP_ATTEMPTS[ip])
-    STATE["risk"] = assessment["risk"]
-    STATE["intent"] = assessment["intent"]
-
-    # If risk is high, flag them and route to decoy
-    if STATE["risk"] > 40:
-        FLAGGED_IPS.add(ip)
-        decision = planner.plan(assessment, {})
-        STATE["active_decoy"] = decision.get("strategy")
-        STATE["firewall_status"] = f"BYPASSED & TRAPPED ({ip})"
-        
-        # Add to timeline
-        EVENT_LOG.append({"type": "attacker", "text": f"GET /company/{path} - Suspicious"})
-        EVENT_LOG.append({"type": "observer", "text": f"Risk {STATE['risk']} | Intent {STATE['intent']}"})
-        EVENT_LOG.append({"type": "planner", "text": f"Deploying {STATE['active_decoy']}"})
-        
-        # If they hit /env, trigger the honeytoken
-        if "/env" in path:
-            STATE["honeytoken_hit"] = True
-            EVENT_LOG.append({"type": "verifier", "text": "🚨 HONEYTOKEN TRIGGERED!"})
-            # CASE 3: TEACH THE FIREWALL
-            BLOCKED_IPS.add(ip) 
-            STATE["firewall_status"] = f"AI BLOCKED ({ip})"
-            EVENT_LOG.append({"type": "system", "text": f"🛑 Firewall updated to block {ip}"})
-            
-        return get_decoy_response(path)
-
-    # 4. LET THEM SEE REAL (FAKE) DATA
-    STATE["firewall_status"] = f"ALLOWED ({ip})"
-    return {"status": "success", "data": "Real Company Data (Safe)", "path": path}
-
-def get_decoy_response(path):
-    if "aws" in path:
-        return {"keys": "AKIA-FAKE-123", "status": "Decoy Data"}
-    return {"status": "Decoy Data", "message": "Welcome to the fake portal"}
+@app.get("/api/test-firewall/{ip}")
+def test_firewall(ip: str):
+    if ip in BLOCKED_IPS or ip not in ALLOWED_IPS:
+        return {"status": "⛔ CONNECTION REFUSED", "message": f"IP {ip} is blocked by firewall rules."}
+    else:
+        return {"status": "✅ CONNECTION ACCEPTED", "message": f"IP {ip} is on the allowlist. Traffic allowed."}
